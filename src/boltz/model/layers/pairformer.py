@@ -72,13 +72,16 @@ class PairformerLayer(nn.Module):
     ) -> tuple[Tensor, Tensor]:
         # Compute pairwise stack
         dropout = get_dropout_mask(self.dropout, z, self.training)
-        z = z + dropout * self.tri_mul_out(z, mask=pair_mask)
+        #z = z + dropout * self.tri_mul_out(z, mask=pair_mask)
+        z = z + self.tri_mul_out(z, mask=pair_mask)
 
         dropout = get_dropout_mask(self.dropout, z, self.training)
-        z = z + dropout * self.tri_mul_in(z, mask=pair_mask)
+        #z = z + dropout * self.tri_mul_in(z, mask=pair_mask)
+        z = z + self.tri_mul_in(z, mask=pair_mask)
 
         dropout = get_dropout_mask(self.dropout, z, self.training)
-        z = z + dropout * self.tri_att_start(
+        #z = z + dropout * self.tri_att_start(
+        z = z + self.tri_att_start(
             z,
             mask=pair_mask,
             chunk_size=chunk_size_tri_attn,
@@ -86,7 +89,8 @@ class PairformerLayer(nn.Module):
         )
 
         dropout = get_dropout_mask(self.dropout, z, self.training, columnwise=True)
-        z = z + dropout * self.tri_att_end(
+        #z = z + dropout * self.tri_att_end(
+        z = z + self.tri_att_end(
             z,
             mask=pair_mask,
             chunk_size=chunk_size_tri_attn,
@@ -235,10 +239,12 @@ class PairformerNoSeqLayer(nn.Module):
         z = z + dropout * self.tri_mul_out(z, mask=pair_mask)
 
         dropout = get_dropout_mask(self.dropout, z, self.training)
-        z = z + dropout * self.tri_mul_in(z, mask=pair_mask)
+        #z = z + dropout * self.tri_mul_in(z, mask=pair_mask)
+        z = z + self.tri_mul_in(z, mask=pair_mask)
 
         dropout = get_dropout_mask(self.dropout, z, self.training)
-        z = z + dropout * self.tri_att_start(
+        #z = z + dropout * self.tri_att_start(
+        z = z + self.tri_att_start(
             z,
             mask=pair_mask,
             chunk_size=chunk_size_tri_attn,
@@ -246,7 +252,8 @@ class PairformerNoSeqLayer(nn.Module):
         )
 
         dropout = get_dropout_mask(self.dropout, z, self.training, columnwise=True)
-        z = z + dropout * self.tri_att_end(
+        #z = z + dropout * self.tri_att_end(
+        z = z + self.tri_att_end(
             z,
             mask=pair_mask,
             chunk_size=chunk_size_tri_attn,

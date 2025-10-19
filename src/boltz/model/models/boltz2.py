@@ -419,8 +419,10 @@ class Boltz2(LightningModule):
             z_init = z_init + relative_position_encoding
             z_init = z_init + self.token_bonds(feats["token_bonds"].float())
             if self.bond_type_feature:
-                z_init = z_init + self.token_bonds_type(feats["type_bonds"].long())
-            z_init = z_init + self.contact_conditioning(feats)
+                #z_init = z_init + self.token_bonds_type(feats["type_bonds"].long())
+                z_init = (z_init + self.token_bonds_type(feats["type_bonds"].long())).to(z_init.dtype)
+            #z_init = z_init + self.contact_conditioning(feats)
+            z_init = (z_init + self.contact_conditioning(feats)).to(z_init.dtype)
 
             # Perform rounds of the pairwise stack
             s = torch.zeros_like(s_init)

@@ -162,15 +162,20 @@ class ConfidenceModule(nn.Module):
         if self.add_s_input_to_s:
             s = s + self.s_input_to_s(s_inputs)
 
-        z = self.z_norm(z)
+        #z = self.z_norm(z)
+        z = self.z_norm(z).to(z.dtype)
 
         if self.add_z_input_to_z:
             relative_position_encoding = self.rel_pos(feats)
-            z = z + relative_position_encoding
-            z = z + self.token_bonds(feats["token_bonds"].float())
+            #z = z + relative_position_encoding
+            z = (z + relative_position_encoding).to(z.dtype)
+            #z = z + self.token_bonds(feats["token_bonds"].float())
+            z = (z + self.token_bonds(feats["token_bonds"].float())).to(z.dtype)
             if self.bond_type_feature:
-                z = z + self.token_bonds_type(feats["type_bonds"].long())
-            z = z + self.contact_conditioning(feats)
+                #z = z + self.token_bonds_type(feats["type_bonds"].long())
+                z = (z + self.token_bonds_type(feats["type_bonds"].long())).to(z.dtype)
+            #z = z + self.contact_conditioning(feats)
+            z = (z + self.contact_conditioning(feats)).to(z.dtype)
 
         s = s.repeat_interleave(multiplicity, 0)
 
@@ -199,7 +204,8 @@ class ConfidenceModule(nn.Module):
         d = torch.cdist(x_pred_repr, x_pred_repr)
         distogram = (d.unsqueeze(-1) > self.boundaries).sum(dim=-1).long()
         distogram = self.dist_bin_pairwise_embed(distogram)
-        z = z + distogram
+        #z = z + distogram
+        z = (z + distogram).to(z.dtype)
 
         mask = feats["token_pad_mask"].repeat_interleave(multiplicity, 0)
         pair_mask = mask[:, :, None] * mask[:, None, :]

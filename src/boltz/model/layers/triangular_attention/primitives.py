@@ -361,6 +361,9 @@ class Attention(nn.Module):
             o = _attention(q, k, v, biases)
             o = o.transpose(-2, -3)
 
+        del q
+        del k
+        del v
         o = self._wrap_up(o, q_x)
 
         return o
@@ -397,10 +400,21 @@ def _trifast_attn(q, k, v, biases):
     # Make mask the right shape.
     mask = rearrange(mask, "b i () () j -> b i j").bool()
 
-    # Delay import to here to avoid initializing cuda too early
-    from trifast import triangle_attention
+    ## Delay import to here to avoid initializing cuda too early
+    #from trifast import triangle_attention
+    if trifast_is_installed:
+        bs, h, _, _, _ = q.shape
+        q = rearrange(q, "b h ... -> (b h) ...").contiguous()
+        k = rearrange(k, "b h ... -> (b h) ...").contiguous()
+        v = rearrange(v, "b h ... -> (b h) ...").contiguous()
+        b = rearrange(b, "b h ... -> (b h) ...").contiguous()
+        mask = mask.contiguous()
+        o = triangle_attention(q, k, v, b, mask)
+        o = rearrange(o, "(b h) ... -> b h ...", h=h, b=bs).contiguous()
+    else:
+        o = triangle_attention(q, k, v, b, mask)
 
-    o = triangle_attention(q, k, v, b, mask)
+    #o = triangle_attention(q, k, v, b, mask)
     o = rearrange(o, "b h i j d -> b i j h d")
 
     # Remove the batch dim if we added it.

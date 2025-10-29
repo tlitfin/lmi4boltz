@@ -1159,7 +1159,7 @@ def process_atom_features(
     r_set_to_rep_atom = []
     disto_coords_ensemble = []
     backbone_feat_index = []
-    token_to_center_atom = []
+    #token_to_center_atom = []
 
     e_offsets = data.structure.ensemble["atom_coord_idx"]
     atom_idx = 0
@@ -1233,7 +1233,7 @@ def process_atom_features(
 
         # Map token to representative atom
         token_to_rep_atom.append(atom_idx + token["disto_idx"] - start)
-        token_to_center_atom.append(atom_idx + token["center_idx"] - start)
+        #token_to_center_atom.append(atom_idx + token["center_idx"] - start)
         if (chain["mol_type"] != const.chain_type_ids["NONPOLYMER"]) and token[
             "resolved_mask"
         ]:
@@ -1440,7 +1440,7 @@ def process_atom_features(
     atom_to_token = torch.tensor(atom_to_token, dtype=torch.long)
     token_to_rep_atom = torch.tensor(token_to_rep_atom, dtype=torch.long)
     r_set_to_rep_atom = torch.tensor(r_set_to_rep_atom, dtype=torch.long)
-    token_to_center_atom = torch.tensor(token_to_center_atom, dtype=torch.long)
+    #token_to_center_atom = torch.tensor(token_to_center_atom, dtype=torch.long)
     bfactor = from_numpy(atom_data["bfactor"].copy())
     plddt = from_numpy(atom_data["plddt"].copy())
     if override_bfactor:
@@ -1481,7 +1481,7 @@ def process_atom_features(
     atom_to_token = one_hot(atom_to_token, num_classes=token_id + 1)
     token_to_rep_atom = one_hot(token_to_rep_atom, num_classes=len(atom_data))
     r_set_to_rep_atom = one_hot(r_set_to_rep_atom, num_classes=len(atom_data))
-    token_to_center_atom = one_hot(token_to_center_atom, num_classes=len(atom_data))
+    #token_to_center_atom = one_hot(token_to_center_atom, num_classes=len(atom_data))
 
     # Center the ground truth coordinates
     center = (coords * resolved_mask[None, :, None]).sum(dim=1)
@@ -1521,7 +1521,7 @@ def process_atom_features(
         coords = pad_dim(coords, 1, pad_len)
         atom_to_token = pad_dim(atom_to_token, 0, pad_len)
         token_to_rep_atom = pad_dim(token_to_rep_atom, 1, pad_len)
-        token_to_center_atom = pad_dim(token_to_center_atom, 1, pad_len)
+        #token_to_center_atom = pad_dim(token_to_center_atom, 1, pad_len)
         r_set_to_rep_atom = pad_dim(r_set_to_rep_atom, 1, pad_len)
         bfactor = pad_dim(bfactor, 0, pad_len)
         plddt = pad_dim(plddt, 0, pad_len)
@@ -1532,7 +1532,7 @@ def process_atom_features(
             atom_to_token = pad_dim(atom_to_token, 1, pad_len)
             token_to_rep_atom = pad_dim(token_to_rep_atom, 0, pad_len)
             r_set_to_rep_atom = pad_dim(r_set_to_rep_atom, 0, pad_len)
-            token_to_center_atom = pad_dim(token_to_center_atom, 0, pad_len)
+            #token_to_center_atom = pad_dim(token_to_center_atom, 0, pad_len)
             disto_target = pad_dim(pad_dim(disto_target, 0, pad_len), 1, pad_len)
             disto_coords_ensemble = pad_dim(disto_coords_ensemble, 1, pad_len)
 
@@ -1547,14 +1547,14 @@ def process_atom_features(
         "ref_element": ref_element,
         "ref_charge": ref_charge,
         "ref_chirality": ref_chirality,
-        "atom_backbone_feat": backbone_feat_index,
+        #"atom_backbone_feat": backbone_feat_index,
         "ref_space_uid": ref_space_uid,
         "coords": coords,
         "atom_pad_mask": pad_mask,
         "atom_to_token": atom_to_token,
         "token_to_rep_atom": token_to_rep_atom,
         "r_set_to_rep_atom": r_set_to_rep_atom,
-        "token_to_center_atom": token_to_center_atom,
+        #"token_to_center_atom": token_to_center_atom,
         "disto_target": disto_target,
         "disto_coords_ensemble": disto_coords_ensemble,
         "bfactor": bfactor,

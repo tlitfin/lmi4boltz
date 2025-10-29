@@ -148,7 +148,8 @@ class DiffusionModule(Module):
         )
 
         # Full self-attention on token level
-        a = a + self.s_to_a_linear(s)
+        #a = a + self.s_to_a_linear(s)
+        a += self.s_to_a_linear(s)
 
         mask = feats["token_pad_mask"].repeat_interleave(multiplicity, 0)
         a = self.token_transformer(

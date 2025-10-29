@@ -192,11 +192,22 @@ class ConfidenceModule(nn.Module):
         s_diffusion=None,
         run_sequentially=False,
         use_kernels: bool = False,
+        chunk_size_transition_z: int = None,
+        chunk_size_transition_msa: int = None,
+        chunk_size_outer_product: int = None,
+        chunk_size_tri_attn: int = None,
+        triangle_mult_gate_nchunks: int = 1,
+        chunk_size_threshold: int=384
     ):
         if run_sequentially and multiplicity > 1:
             assert z.shape[0] == 1, "Not supported with batch size > 1"
             out_dicts = []
+            z_orig = z.cpu()
+            s_orig = s.cpu()
             for sample_idx in range(multiplicity):
+                z = z_orig.cuda()
+                s = s_orig.cuda()
+
                 out_dicts.append(  # noqa: PERF401
                     self.forward(
                         s_inputs,
@@ -211,6 +222,12 @@ class ConfidenceModule(nn.Module):
                         else None,
                         run_sequentially=False,
                         use_kernels=use_kernels,
+                        chunk_size_transition_z=chunk_size_transition_z,
+                        chunk_size_transition_msa=chunk_size_transition_msa,
+                        chunk_size_outer_product=chunk_size_outer_product,
+                        chunk_size_tri_attn= chunk_size_tri_attn,
+                        triangle_mult_gate_nchunks=triangle_mult_gate_nchunks,
+                        chunk_size_threshold=chunk_size_threshold
                     )
                 )
 
@@ -231,21 +248,39 @@ class ConfidenceModule(nn.Module):
                     out_dict[key] = pair_chains_iptm
             return out_dict
         if self.imitate_trunk:
+            feats["atom_to_token"] = feats["atom_to_token"].cuda()
+            feats["ref_atom_name_chars"] = feats["ref_atom_name_chars"].cuda()
+            feats["ref_element"] = feats["ref_element"].cuda()
+            
             s_inputs = self.input_embedder(feats)
+            
+            feats["atom_to_token"] = feats["atom_to_token"].cpu()
+            feats["ref_atom_name_chars"] = feats["ref_atom_name_chars"].cpu()
+            feats["ref_element"] = feats["ref_element"].cpu()
 
             # Initialize the sequence and pairwise embeddings
             s_init = self.s_init(s_inputs)
-            z_init = (
+            l = self.z_norm(z)
+            l = self.z_recycle(l)
+            z.copy_(l)
+            del(l)
+
+            #z_init = (
+            z += (
                 self.z_init_1(s_inputs)[:, :, None]
                 + self.z_init_2(s_inputs)[:, None, :]
             )
-            relative_position_encoding = self.rel_pos(feats)
-            z_init = z_init + relative_position_encoding
-            z_init = z_init + self.token_bonds(feats["token_bonds"].float())
+            #relative_position_encoding = self.rel_pos(feats)
+            #z_init = z_init + relative_position_encoding
+            #z_init = z_init + self.token_bonds(feats["token_bonds"].float())
+            z += self.rel_pos(feats)
+            feats["token_bonds"] = feats["token_bonds"].cuda()
+            z += self.token_bonds(feats["token_bonds"].float())
+            feats["token_bonds"] = feats["token_bonds"].cpu()
 
             # Apply recycling
             s = s_init + self.s_recycle(self.s_norm(s))
-            z = z_init + self.z_recycle(self.z_norm(z))
+            #z = z_init + self.z_recycle(self.z_norm(z))
 
         else:
             s_inputs = self.s_inputs_norm(s_inputs).repeat_interleave(multiplicity, 0)
@@ -253,14 +288,17 @@ class ConfidenceModule(nn.Module):
                 s = self.s_norm(s)
 
             if self.add_s_input_to_s:
-                s = s + self.s_input_to_s(s_inputs)
+                #s = s + self.s_input_to_s(s_inputs)
+                s += self.s_input_to_s(s_inputs)
 
             z = self.z_norm(z)
 
             if self.add_z_input_to_z:
-                relative_position_encoding = self.rel_pos(feats)
-                z = z + relative_position_encoding
-                z = z + self.token_bonds(feats["token_bonds"].float())
+                #relative_position_encoding = self.rel_pos(feats)
+                #z = z + relative_position_encoding
+                #z = z + self.token_bonds(feats["token_bonds"].float())
+                z += self.rel_pos(feats)
+                z += self.token_bonds(feats["token_bonds"].float())
 
         s = s.repeat_interleave(multiplicity, 0)
 
@@ -268,55 +306,105 @@ class ConfidenceModule(nn.Module):
             assert s_diffusion is not None
             s_diffusion = self.s_diffusion_norm(s_diffusion)
             s = s + self.s_diffusion_to_s(s_diffusion)
+            del s_diffusion
 
-        z = z.repeat_interleave(multiplicity, 0)
-        z = (
-            z
-            + self.s_to_z(s_inputs)[:, :, None, :]
-            + self.s_to_z_transpose(s_inputs)[:, None, :, :]
-        )
+        #z = z.repeat_interleave(multiplicity, 0)
+        #z = (
+        #    z
+        #    + self.s_to_z(s_inputs)[:, :, None, :]
+        #    + self.s_to_z_transpose(s_inputs)[:, None, :, :]
+        #)
+        l = z.repeat_interleave(multiplicity, 0)
+        z.copy_(l)
+        del l
+        z += self.s_to_z(s_inputs)[:, :, None, :]
+        z += self.s_to_z_transpose(s_inputs)[:, None, :, :]
 
         if self.add_s_to_z_prod:
-            z = z + self.s_to_z_prod_out(
+            #z = z + self.s_to_z_prod_out(
+            z += self.s_to_z_prod_out(
                 self.s_to_z_prod_in1(s_inputs)[:, :, None, :]
                 * self.s_to_z_prod_in2(s_inputs)[:, None, :, :]
             )
 
-        token_to_rep_atom = feats["token_to_rep_atom"]
+        token_to_rep_atom = feats["token_to_rep_atom"].cuda()
         token_to_rep_atom = token_to_rep_atom.repeat_interleave(multiplicity, 0)
         if len(x_pred.shape) == 4:
             B, mult, N, _ = x_pred.shape
             x_pred = x_pred.reshape(B * mult, N, -1)
         x_pred_repr = torch.bmm(token_to_rep_atom.float(), x_pred)
+        del token_to_rep_atom
         d = torch.cdist(x_pred_repr, x_pred_repr)
+        del x_pred_repr
+        x_pred = x_pred.cpu()
 
         distogram = (d.unsqueeze(-1) > self.boundaries).sum(dim=-1).long()
+        d = d.cpu()
         distogram = self.dist_bin_pairwise_embed(distogram)
 
-        z = z + distogram
+        #z = z + distogram
+        z += distogram
+        del distogram
 
-        mask = feats["token_pad_mask"].repeat_interleave(multiplicity, 0)
-        pair_mask = mask[:, :, None] * mask[:, None, :]
+        #mask = feats["token_pad_mask"].repeat_interleave(multiplicity, 0)
+        #pair_mask = mask[:, :, None] * mask[:, None, :]
+
+        feats["msa"] = feats["msa"].cuda()
+        feats["msa_paired"] = feats["msa_paired"].cuda()
+        feats["has_deletion"] = feats["has_deletion"].cuda()
+        feats["deletion_value"] = feats["deletion_value"].cuda()
 
         if self.imitate_trunk:
-            z = z + self.msa_module(z, s_inputs, feats, use_kernels=use_kernels)
+            #z = z + self.msa_module(z, s_inputs, feats, use_kernels=use_kernels)
+            z_orig = z.cpu()
+            z = self.msa_module(z, s_inputs, feats, use_kernels=use_kernels,
+                    chunk_size_transition_z=chunk_size_transition_z, 
+                    chunk_size_transition_msa=chunk_size_transition_msa, 
+                    chunk_size_outer_product=chunk_size_outer_product, 
+                    chunk_size_tri_attn=chunk_size_tri_attn,
+                    triangle_mult_gate_nchunks=triangle_mult_gate_nchunks,
+                    chunk_size_threshold=chunk_size_threshold
+                )
+            z += z_orig.cuda()
 
+            mask = feats["token_pad_mask"].repeat_interleave(multiplicity, 0)
+            pair_mask = mask[:, :, None] * mask[:, None, :]
+            del s_inputs
+
+            #s, z = self.pairformer_module(
+            #    s, z, mask=mask, pair_mask=pair_mask, use_trifast=use_trifast
+            #)
             s, z = self.pairformer_module(
-                s, z, mask=mask, pair_mask=pair_mask, use_kernels=use_kernels
-            )
+                s, z, mask=mask, pair_mask=pair_mask, use_kernels=use_kernels,
+                chunk_size_transition_z=chunk_size_transition_z, 
+                chunk_size_tri_attn=chunk_size_tri_attn,
+                triangle_mult_gate_nchunks=triangle_mult_gate_nchunks,
+                chunk_size_threshold=chunk_size_threshold)
 
-            s, z = self.final_s_norm(s), self.final_z_norm(z)
+            #s, z = self.final_s_norm(s), self.final_z_norm(z)
+            s, lz = self.final_s_norm(s), self.final_z_norm(z)
+            z.copy_(lz)
 
         else:
+            mask = feats["token_pad_mask"].repeat_interleave(multiplicity, 0)
+            pair_mask = mask[:, :, None] * mask[:, None, :]
+
+            #s_t, z_t = self.pairformer_stack(
+            #    s, z, mask=mask, pair_mask=pair_mask, use_trifast=use_trifast
+            #)
             s_t, z_t = self.pairformer_stack(
-                s, z, mask=mask, pair_mask=pair_mask, use_kernels=use_kernels
-            )
+                s, z, mask=mask, pair_mask=pair_mask, use_kernels=use_kernels,
+                chunk_size_transition_z=chunk_size_transition_z, 
+                chunk_size_tri_attn=chunk_size_tri_attn,
+                triangle_mult_gate_nchunks=triangle_mult_gate_nchunks)
 
             # AF3 has residual connections, we remove them
             s = s_t
             z = z_t
 
         out_dict = {}
+        d = d.cuda()
+        x_pred = x_pred.cuda()
 
         # confidence heads
         out_dict.update(
@@ -425,7 +513,7 @@ class ConfidenceHeads(nn.Module):
         # Compute the aggregated PDE and iPDE
         pde = compute_aggregated_metric(pde_logits, end=32)
         pred_distogram_prob = nn.functional.softmax(
-            pred_distogram_logits, dim=-1
+            pred_distogram_logits.cuda(), dim=-1
         ).repeat_interleave(multiplicity, 0)
         contacts = torch.zeros((1, 1, 1, 64), dtype=pred_distogram_prob.dtype).to(
             pred_distogram_prob.device
@@ -456,26 +544,26 @@ class ConfidenceHeads(nn.Module):
         )
 
         out_dict = dict(
-            pde_logits=pde_logits,
-            plddt_logits=plddt_logits,
-            resolved_logits=resolved_logits,
-            pde=pde,
-            plddt=plddt,
-            complex_plddt=complex_plddt,
-            complex_iplddt=complex_iplddt,
-            complex_pde=complex_pde,
-            complex_ipde=complex_ipde,
+            pde_logits=pde_logits.cpu(),
+            plddt_logits=plddt_logits.cpu(),
+            resolved_logits=resolved_logits.cpu(),
+            pde=pde.cpu(),
+            plddt=plddt.cpu(),
+            complex_plddt=complex_plddt.cpu(),
+            complex_iplddt=complex_iplddt.cpu(),
+            complex_pde=complex_pde.cpu(),
+            complex_ipde=complex_ipde.cpu(),
         )
         if self.compute_pae:
-            out_dict["pae_logits"] = pae_logits
-            out_dict["pae"] = compute_aggregated_metric(pae_logits, end=32)
+            out_dict["pae_logits"] = pae_logits.cpu()
+            out_dict["pae"] = compute_aggregated_metric(pae_logits, end=32).cpu()
             ptm, iptm, ligand_iptm, protein_iptm, pair_chains_iptm = compute_ptms(
                 pae_logits, x_pred, feats, multiplicity
             )
-            out_dict["ptm"] = ptm
-            out_dict["iptm"] = iptm
-            out_dict["ligand_iptm"] = ligand_iptm
-            out_dict["protein_iptm"] = protein_iptm
+            out_dict["ptm"] = ptm.cpu()
+            out_dict["iptm"] = iptm.cpu()
+            out_dict["ligand_iptm"] = ligand_iptm.cpu()
+            out_dict["protein_iptm"] = protein_iptm.cpu()
             out_dict["pair_chains_iptm"] = pair_chains_iptm
 
         return out_dict

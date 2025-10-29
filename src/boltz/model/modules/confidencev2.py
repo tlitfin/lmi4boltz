@@ -117,11 +117,22 @@ class ConfidenceModule(nn.Module):
         multiplicity=1,
         run_sequentially=False,
         use_kernels: bool = False,
+        chunk_size_transition_z: int = None,
+        chunk_size_transition_msa: int = None,
+        chunk_size_outer_product: int = None,
+        chunk_size_tri_attn: int = None,
+        triangle_mult_gate_nchunks: int = 1,
+        chunk_size_threshold: int=384
     ):
         if run_sequentially and multiplicity > 1:
             assert z.shape[0] == 1, "Not supported with batch size > 1"
             out_dicts = []
+            z_orig = z.cpu()
+            s_orig = s.cpu()
+
             for sample_idx in range(multiplicity):
+                z = z_orig.cuda()
+                s = s_orig.cuda()
                 out_dicts.append(  # noqa: PERF401
                     self.forward(
                         s_inputs,
@@ -133,6 +144,12 @@ class ConfidenceModule(nn.Module):
                         multiplicity=1,
                         run_sequentially=False,
                         use_kernels=use_kernels,
+                        chunk_size_transition_z=chunk_size_transition_z,
+                        chunk_size_transition_msa=chunk_size_transition_msa,
+                        chunk_size_outer_product=chunk_size_outer_product,
+                        chunk_size_tri_attn= chunk_size_tri_attn,
+                        triangle_mult_gate_nchunks=triangle_mult_gate_nchunks,
+                        chunk_size_threshold=chunk_size_threshold
                     )
                 )
 
@@ -160,50 +177,80 @@ class ConfidenceModule(nn.Module):
         if self.add_s_input_to_s:
             s = s + self.s_input_to_s(s_inputs)
 
-        z = self.z_norm(z)
+        #z = self.z_norm(z)
+        #z = self.z_norm(z).to(z.dtype)
+        #Probably unneccessary - above line keeps bfloat16 (is this duplicated by scope?)
+        l = self.z_norm(z)
+        z.copy_(l)
+        del l
 
         if self.add_z_input_to_z:
-            relative_position_encoding = self.rel_pos(feats)
-            z = z + relative_position_encoding
-            z = z + self.token_bonds(feats["token_bonds"].float())
+            #relative_position_encoding = self.rel_pos(feats)
+            #z = z + relative_position_encoding
+            #z = z + self.token_bonds(feats["token_bonds"].float())
+            feats['contact_conditioning'] = feats['contact_conditioning'].cuda()
+            feats['contact_threshold'] = feats['contact_threshold'].cuda()
+            z += self.rel_pos(feats)
+            z += self.token_bonds(feats["token_bonds"].cuda().float())
             if self.bond_type_feature:
-                z = z + self.token_bonds_type(feats["type_bonds"].long())
-            z = z + self.contact_conditioning(feats)
+                #z = z + self.token_bonds_type(feats["type_bonds"].long())
+                z += self.token_bonds_type(feats["type_bonds"].cuda().long())
+            #z = z + self.contact_conditioning(feats)
+            z += self.contact_conditioning(feats)
+            feats['contact_conditioning'] = feats['contact_conditioning'].cpu()
+            feats['contact_threshold'] = feats['contact_threshold'].cpu()
 
         s = s.repeat_interleave(multiplicity, 0)
 
-        z = (
-            z
-            + self.s_to_z(s_inputs)[:, :, None, :]
-            + self.s_to_z_transpose(s_inputs)[:, None, :, :]
-        )
+        #z = (
+        #    z
+        #    + self.s_to_z(s_inputs)[:, :, None, :]
+        #    + self.s_to_z_transpose(s_inputs)[:, None, :, :]
+        #)
+        #When in place this has to be split so the inner op is in fp32
+        z += self.s_to_z(s_inputs)[:, :, None, :]
+        z += self.s_to_z_transpose(s_inputs)[:, None, :, :]
+        
         if self.add_s_to_z_prod:
-            z = z + self.s_to_z_prod_out(
+            #z = z + self.s_to_z_prod_out(
+            z += self.s_to_z_prod_out(
                 self.s_to_z_prod_in1(s_inputs)[:, :, None, :]
                 * self.s_to_z_prod_in2(s_inputs)[:, None, :, :]
             )
 
-        z = z.repeat_interleave(multiplicity, 0)
+        #z = z.repeat_interleave(multiplicity, 0)
+        l = z.repeat_interleave(multiplicity, 0)
+        z.copy_(l)
+        del l
         s_inputs = s_inputs.repeat_interleave(multiplicity, 0)
 
-        token_to_rep_atom = feats["token_to_rep_atom"]
+        token_to_rep_atom = feats["token_to_rep_atom"].cuda()
         token_to_rep_atom = token_to_rep_atom.repeat_interleave(multiplicity, 0)
         if len(x_pred.shape) == 4:
             B, mult, N, _ = x_pred.shape
             x_pred = x_pred.reshape(B * mult, N, -1)
         else:
             BM, N, _ = x_pred.shape
-        x_pred_repr = torch.bmm(token_to_rep_atom.float(), x_pred)
+        x_pred_repr = torch.bmm(token_to_rep_atom.float(), x_pred.cuda())
+        del token_to_rep_atom
         d = torch.cdist(x_pred_repr, x_pred_repr)
+        del x_pred_repr
         distogram = (d.unsqueeze(-1) > self.boundaries).sum(dim=-1).long()
+        d = d.cpu()
         distogram = self.dist_bin_pairwise_embed(distogram)
-        z = z + distogram
+        #z = z + distogram
+        z += distogram
+        del distogram
 
         mask = feats["token_pad_mask"].repeat_interleave(multiplicity, 0)
         pair_mask = mask[:, :, None] * mask[:, None, :]
 
         s_t, z_t = self.pairformer_stack(
-            s, z, mask=mask, pair_mask=pair_mask, use_kernels=use_kernels
+            s, z, mask=mask, pair_mask=pair_mask, use_kernels=use_kernels,
+            chunk_size_transition_z=chunk_size_transition_z, 
+            chunk_size_tri_attn=chunk_size_tri_attn,
+            triangle_mult_gate_nchunks=triangle_mult_gate_nchunks,
+            chunk_size_threshold=chunk_size_threshold
         )
 
         # AF3 has residual connections, we remove them
@@ -217,15 +264,19 @@ class ConfidenceModule(nn.Module):
             out_dict["z_conf"] = z
 
         # confidence heads
+        feats["msa"] = feats["msa"].cuda()
+        feats["msa_paired"] = feats["msa_paired"].cuda()
+        feats["has_deletion"] = feats["has_deletion"].cuda()
+        feats["deletion_value"] = feats["deletion_value"].cuda()
         out_dict.update(
             self.confidence_heads(
                 s=s,
                 z=z,
                 x_pred=x_pred,
-                d=d,
+                d=d.cuda(),
                 feats=feats,
                 multiplicity=multiplicity,
-                pred_distogram_logits=pred_distogram_logits,
+                pred_distogram_logits=pred_distogram_logits.cuda(),
             )
         )
         return out_dict
@@ -477,7 +528,7 @@ class ConfidenceHeads(nn.Module):
 
         try:
             ptm, iptm, ligand_iptm, protein_iptm, pair_chains_iptm = compute_ptms(
-                pae_logits, x_pred, feats, multiplicity
+                pae_logits.cuda(), x_pred.cuda(), feats, multiplicity
             )
             out_dict["ptm"] = ptm
             out_dict["iptm"] = iptm

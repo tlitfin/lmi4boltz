@@ -501,6 +501,7 @@ def compute_frame_pred(
 ):
     # extract necessary features
     asym_id_token = feats["asym_id"]
+    feats["atom_to_token"] = feats["atom_to_token"].cuda()
     asym_id_atom = torch.bmm(
         feats["atom_to_token"].float(), asym_id_token.unsqueeze(-1).float()
     ).squeeze(-1)

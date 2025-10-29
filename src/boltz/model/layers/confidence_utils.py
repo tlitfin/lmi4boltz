@@ -26,7 +26,8 @@ def compute_frame_pred(
     with torch.amp.autocast("cuda", enabled=False):
         asym_id_token = feats["asym_id"]
         asym_id_atom = torch.bmm(
-            feats["atom_to_token"].float(), asym_id_token.unsqueeze(-1).float()
+            #feats["atom_to_token"].float(), asym_id_token.unsqueeze(-1).float()
+            feats["atom_to_token"].cuda().float(), asym_id_token.cuda().unsqueeze(-1).float()
         ).squeeze(-1)
 
     B, N, _ = pred_atom_coords.shape

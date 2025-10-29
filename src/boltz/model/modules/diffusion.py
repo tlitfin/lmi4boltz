@@ -174,6 +174,7 @@ class DiffusionModule(Module):
         times,
         relative_position_encoding,
         feats,
+        chunk_size_transition_z=None,
         multiplicity=1,
         model_cache=None,
     ):
@@ -185,7 +186,8 @@ class DiffusionModule(Module):
 
         if model_cache is None or len(model_cache) == 0:
             z = self.pairwise_conditioner(
-                z_trunk=z_trunk, token_rel_pos_feats=relative_position_encoding
+                z_trunk=z_trunk, token_rel_pos_feats=relative_position_encoding,
+                chunk_size_transition_z=chunk_size_transition_z
             )
         else:
             z = None
@@ -201,7 +203,8 @@ class DiffusionModule(Module):
         )
 
         # Full self-attention on token level
-        a = a + self.s_to_a_linear(s)
+        #a = a + self.s_to_a_linear(s)
+        a += self.s_to_a_linear(s)
 
         mask = feats["token_pad_mask"].repeat_interleave(multiplicity, 0)
         a = self.token_transformer(
@@ -276,7 +279,8 @@ class OutTokenFeatUpdate(Module):
         )
         cond_a = torch.cat((acc_a, normed_fourier), dim=-1)
 
-        acc_a = acc_a + self.transition_block(next_a, cond_a)
+        #acc_a = acc_a + self.transition_block(next_a, cond_a)
+        acc_a += self.transition_block(next_a, cond_a)
 
         return acc_a
 
@@ -727,6 +731,7 @@ class AtomDiffusion(Module):
         relative_position_encoding,
         feats,
         multiplicity=1,
+        chunk_size_transition_z=None
     ):
         # training diffusion step
         batch_size = feats["coords"].shape[0]
@@ -766,6 +771,7 @@ class AtomDiffusion(Module):
                 relative_position_encoding=relative_position_encoding,
                 feats=feats,
                 multiplicity=multiplicity,
+                chunk_size_transition_z=chunk_size_transition_z
             ),
         )
 

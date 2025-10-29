@@ -73,11 +73,12 @@ class PairWeightedAveraging(nn.Module):
 
         if chunk_heads and not self.training:
             # Compute heads sequentially
-            o_chunks = []
+            #o_chunks = []
             for head_idx in range(self.num_heads):
                 sliced_weight_proj_m = self.proj_m.weight[
                     head_idx * self.c_h : (head_idx + 1) * self.c_h, :
                 ]
+                '''
                 sliced_weight_proj_g = self.proj_g.weight[
                     head_idx * self.c_h : (head_idx + 1) * self.c_h, :
                 ]
@@ -85,31 +86,55 @@ class PairWeightedAveraging(nn.Module):
                 sliced_weight_proj_o = self.proj_o.weight[
                     :, head_idx * self.c_h : (head_idx + 1) * self.c_h
                 ]
+                '''
 
                 # Project input tensors
                 v: Tensor = m @ sliced_weight_proj_m.T
+                del sliced_weight_proj_m
                 v = v.reshape(*v.shape[:3], 1, self.c_h)
                 v = v.permute(0, 3, 1, 2, 4)
 
+                sliced_weight_proj_z = self.proj_z.weight[head_idx : (head_idx + 1), :]
+
                 # Compute weights
                 b: Tensor = z @ sliced_weight_proj_z.T
+                del sliced_weight_proj_z
                 b = b.permute(0, 3, 1, 2)
-                b = b + (1 - mask[:, None]) * -self.inf
+                #b = b + (1 - mask[:, None]) * -self.inf
+                b += (1 - mask[:, None]) * -self.inf
                 w = torch.softmax(b, dim=-1)
+                del b
+
+                sliced_weight_proj_g = self.proj_g.weight[
+                    head_idx * self.c_h : (head_idx + 1) * self.c_h, :
+                ]
 
                 # Compute gating
                 g: Tensor = m @ sliced_weight_proj_g.T
+                del sliced_weight_proj_g
                 g = g.sigmoid()
 
                 # Compute output
                 o = torch.einsum("bhij,bhsjd->bhsid", w, v)
+                del w
+                del v
                 o = o.permute(0, 2, 3, 1, 4)
                 o = o.reshape(*o.shape[:3], 1 * self.c_h)
-                o_chunks = g * o
+                #o_chunks = g * o
+                o *= g
+                del g
+
+                sliced_weight_proj_o = self.proj_o.weight[
+                    :, head_idx * self.c_h : (head_idx + 1) * self.c_h
+                ]
+
                 if head_idx == 0:
-                    o_out = o_chunks @ sliced_weight_proj_o.T
+                    #o_out = o_chunks @ sliced_weight_proj_o.T
+                    o_out = o @ sliced_weight_proj_o.T
                 else:
-                    o_out += o_chunks @ sliced_weight_proj_o.T
+                    #o_out += o_chunks @ sliced_weight_proj_o.T
+                    o_out += o @ sliced_weight_proj_o.T
+                del sliced_weight_proj_o
             return o_out
         else:
             # Project input tensors

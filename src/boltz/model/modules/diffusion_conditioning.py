@@ -110,7 +110,11 @@ class DiffusionConditioning(Module):
 
         token_trans_bias = []
         for layer in self.token_trans_proj_z:
-            token_trans_bias.append(layer(z))
+            #token_trans_bias.append(layer(z))
+            token_trans_bias.append(layer(z).float())
+        # casting before cat avoids large duplication later
+        del z
+
         token_trans_bias = torch.cat(token_trans_bias, dim=-1)
 
         return q, c, to_keys, atom_enc_bias, atom_dec_bias, token_trans_bias

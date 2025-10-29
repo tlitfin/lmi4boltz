@@ -552,6 +552,7 @@ def process_token_features(
     pocket_feature = (
         np.zeros(len(token_data)) + const.pocket_contact_info["UNSPECIFIED"]
     )
+    #different behaviour bertween v1 and v2 (was [], []) - v2: None, None
     if inference_binder is not None:
         assert inference_pocket is not None
         pocket_residues = set(inference_pocket)

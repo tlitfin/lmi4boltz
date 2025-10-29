@@ -819,6 +819,47 @@ def cli() -> None:
     help="Whether to dump the pde into a npz file. Default is False.",
 )
 @click.option(
+    "--chunk_size_transition_z",
+    type=click.INT,
+    help="Transition Z chunk size. Default is 64.",
+    default=None,
+)
+@click.option(
+    "--chunk_size_transition_msa",
+    type=int,
+    help="Transition MSA chunk size. Default is 32.",
+    default=32,
+)
+@click.option(
+    "--chunk_size_outer_product",
+    type=int,
+    help="Outer product chunk size. Default is 4.",
+    default=4,
+)
+@click.option(
+    "--chunk_size_tri_attn",
+    type=int,
+    help="Triangle attention chunk size. Default is 128.",
+    default=128,
+)
+@click.option(
+    "--triangle_mult_gate_nchunks",
+    type=int,
+    help="Triangle multiplication number of chunks. Default is 1.",
+    default=1,
+)
+@click.option(
+    "--chunk_size_threshold",
+    type=int,
+    help="Maximum size before chunking. Default is 384.",
+    default=384,
+)
+@click.option(
+    "--use_bfloat16",
+    is_flag=True,
+    help="Use bfloat16",
+)
+@click.option(
     "--output_format",
     type=click.Choice(["pdb", "mmcif"]),
     help="The output format to use for the predictions. Default is mmcif.",
@@ -947,6 +988,14 @@ def predict(  # noqa: C901, PLR0915, PLR0912
     step_scale: Optional[float] = None,
     write_full_pae: bool = False,
     write_full_pde: bool = False,
+    chunk_size_transition_z: int = 64,
+    chunk_size_transition_msa: int = 32,
+    chunk_size_outer_product: int = 4,
+    chunk_size_tri_attn: int = 128,
+    triangle_mult_gate_nchunks: int = 1,
+    chunk_size_threshold: int = 384,
+    use_trifast: bool = False,
+    use_bfloat16: bool = False,
     output_format: Literal["pdb", "mmcif"] = "mmcif",
     num_workers: int = 2,
     override: bool = False,
@@ -1160,6 +1209,12 @@ def predict(  # noqa: C901, PLR0915, PLR0912
             "write_confidence_summary": True,
             "write_full_pae": write_full_pae,
             "write_full_pde": write_full_pde,
+            "chunk_size_transition_z": chunk_size_transition_z,
+            "chunk_size_transition_msa": chunk_size_transition_msa,
+            "chunk_size_outer_product": chunk_size_outer_product,
+            "chunk_size_tri_attn": chunk_size_tri_attn,
+            "chunk_size_threshold": chunk_size_threshold,
+            "triangle_mult_gate_nchunks": triangle_mult_gate_nchunks
         }
 
         steering_args = BoltzSteeringParams()
@@ -1181,13 +1236,22 @@ def predict(  # noqa: C901, PLR0915, PLR0912
             steering_args=asdict(steering_args),
         )
         model_module.eval()
-
-        # Compute structure predictions
-        trainer.predict(
-            model_module,
-            datamodule=data_module,
-            return_predictions=False,
-        )
+        
+        if use_bfloat16:
+            # Compute structure predictions
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                trainer.predict(
+                    model_module,
+                    datamodule=data_module,
+                    return_predictions=False,
+                )
+        else:
+            # Compute structure predictions
+            trainer.predict(
+                model_module,
+                datamodule=data_module,
+                return_predictions=False,
+            )
 
     # Check if affinity predictions are needed
     if any(r.affinity for r in manifest.records):
@@ -1234,6 +1298,11 @@ def predict(  # noqa: C901, PLR0915, PLR0912
             "write_confidence_summary": False,
             "write_full_pae": False,
             "write_full_pde": False,
+            "chunk_size_transition_z": chunk_size_transition_z,
+            "chunk_size_transition_msa": chunk_size_transition_msa,
+            "chunk_size_outer_product": chunk_size_outer_product,
+            "triangle_mult_gate_nchunks": triangle_mult_gate_nchunks,
+            "chunk_size_tri_attn": chunk_size_tri_attn
         }
 
         # Load affinity model
@@ -1255,11 +1324,19 @@ def predict(  # noqa: C901, PLR0915, PLR0912
         model_module.eval()
 
         trainer.callbacks[0] = pred_writer
-        trainer.predict(
-            model_module,
-            datamodule=data_module,
-            return_predictions=False,
-        )
+        if use_bfloat16:
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                trainer.predict(
+                        model_module,
+                        datamodule=data_module,
+                        return_predictions=False,
+                    )
+        else:
+            trainer.predict(
+                model_module,
+                datamodule=data_module,
+                return_predictions=False,
+            )
 
 
 if __name__ == "__main__":

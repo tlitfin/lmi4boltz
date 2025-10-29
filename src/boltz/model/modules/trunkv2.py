@@ -570,6 +570,12 @@ class MSAModule(nn.Module):
         emb: Tensor,
         feats: dict[str, Tensor],
         use_trifast: bool = False,
+        chunk_size_transition_z: int = 64,
+        chunk_size_transition_msa: int = 32,
+        chunk_size_outer_product: int = 4,
+        chunk_size_tri_attn: int = 128,
+        triangle_mult_gate_nchunks: int = 1,
+        chunk_size_threshold: int = 384
     ) -> Tensor:
         """Perform the forward pass.
 
@@ -592,18 +598,20 @@ class MSAModule(nn.Module):
         """
         # Set chunk sizes
         if not self.training:
-            if z.shape[1] > const.chunk_size_threshold:
+            if z.shape[1] > chunk_size_threshold:
                 chunk_heads_pwa = True
-                chunk_size_transition_z = 64
-                chunk_size_transition_msa = 32
-                chunk_size_outer_product = 4
-                chunk_size_tri_attn = 128
+                chunk_size_transition_z = chunk_size_transition_z
+                chunk_size_transition_msa = chunk_size_transition_msa
+                chunk_size_outer_product = chunk_size_outer_product
+                chunk_size_tri_attn = chunk_size_tri_attn
+                triangle_mult_gate_nchunks = triangle_mult_gate_nchunks
             else:
                 chunk_heads_pwa = False
                 chunk_size_transition_z = None
                 chunk_size_transition_msa = None
                 chunk_size_outer_product = None
                 chunk_size_tri_attn = 512
+                triangle_mult_gate_nchunks = 1
         else:
             chunk_heads_pwa = False
             chunk_size_transition_z = None
@@ -612,30 +620,42 @@ class MSAModule(nn.Module):
             chunk_size_tri_attn = None
 
         # Load relevant features
-        msa = feats["msa"]
-        msa = torch.nn.functional.one_hot(msa, num_classes=const.num_tokens)
+        #msa = feats["msa"]
+        #msa = torch.nn.functional.one_hot(msa, num_classes=const.num_tokens)
         has_deletion = feats["has_deletion"].unsqueeze(-1)
         deletion_value = feats["deletion_value"].unsqueeze(-1)
         is_paired = feats["msa_paired"].unsqueeze(-1)
-        msa_mask = feats["msa_mask"]
+        #msa_mask = feats["msa_mask"]
+        msa_mask = feats["msa_mask"].cuda()
         token_mask = feats["token_pad_mask"].float()
         token_mask = token_mask[:, :, None] * token_mask[:, None, :]
 
         # Compute MSA embeddings
         if self.use_paired_feature:
-            m = torch.cat([msa, has_deletion, deletion_value, is_paired], dim=-1)
+            #m = torch.cat([msa, has_deletion, deletion_value, is_paired], dim=-1)
+            m = torch.cat([torch.nn.functional.one_hot(feats['msa'], num_classes=const.num_tokens), has_deletion, deletion_value, is_paired], dim=-1)
         else:
-            m = torch.cat([msa, has_deletion, deletion_value], dim=-1)
+            #m = torch.cat([msa, has_deletion, deletion_value], dim=-1)
+            m = torch.cat([torch.nn.functional.one_hot(feats['msa'], num_classes=const.num_tokens), has_deletion, deletion_value], dim=-1)
 
         # Subsample the MSA
         if self.subsample_msa:
-            msa_indices = torch.randperm(msa.shape[1])[: self.num_subsampled_msa]
+            #msa_indices = torch.randperm(msa.shape[1])[: self.num_subsampled_msa]
+            msa_indices = torch.randperm(feats['msa'].shape[1])[: self.num_subsampled_msa]
             m = m[:, msa_indices]
             msa_mask = msa_mask[:, msa_indices]
+            del msa_indices
 
         # Compute input projections
         m = self.msa_proj(m)
-        m = m + self.s_proj(emb).unsqueeze(1)
+        #m = m + self.s_proj(emb).unsqueeze(1)
+        m += self.s_proj(emb).unsqueeze(1)
+        
+        feats["msa"] = feats["msa"].cpu()
+        feats["msa_paired"] = feats["msa_paired"].cpu()
+        feats["has_deletion"] = feats["has_deletion"].cpu()
+        feats["deletion_value"] = feats["deletion_value"].cpu()
+        del has_deletion, deletion_value, is_paired
 
         # Perform MSA blocks
         for i in range(self.msa_blocks):
@@ -651,6 +671,7 @@ class MSAModule(nn.Module):
                     chunk_size_transition_msa,
                     chunk_size_outer_product,
                     chunk_size_tri_attn,
+                    triangle_mult_gate_nchunks,
                     use_trifast=use_trifast,
                 )
             else:
@@ -664,6 +685,7 @@ class MSAModule(nn.Module):
                     chunk_size_transition_msa,
                     chunk_size_outer_product,
                     chunk_size_tri_attn,
+                    triangle_mult_gate_nchunks,
                     use_trifast=use_trifast,
                 )
         return z
@@ -722,6 +744,7 @@ class MSALayer(nn.Module):
         chunk_size_transition_msa: int = None,
         chunk_size_outer_product: int = None,
         chunk_size_tri_attn: int = None,
+        triangle_mult_gate_nchunks: int = 1,
         use_trifast: bool = False,
     ) -> tuple[Tensor, Tensor]:
         """Perform the forward pass.
@@ -742,17 +765,22 @@ class MSALayer(nn.Module):
 
         """
         # Communication to MSA stack
-        msa_dropout = get_dropout_mask(self.msa_dropout, m, self.training)
-        m = m + msa_dropout * self.pair_weighted_averaging(
+        #msa_dropout = get_dropout_mask(self.msa_dropout, m, self.training)
+        #m = m + msa_dropout * self.pair_weighted_averaging(
+        get_dropout_mask(self.msa_dropout, m, self.training)
+        m += self.pair_weighted_averaging(
             m, z, token_mask, chunk_heads_pwa
         )
-        m = m + self.msa_transition(m, chunk_size_transition_msa)
+        #m = m + self.msa_transition(m, chunk_size_transition_msa)
+        m += self.msa_transition(m, chunk_size_transition_msa)
 
-        z = z + self.outer_product_mean(m, msa_mask, chunk_size_outer_product)
+        #z = z + self.outer_product_mean(m, msa_mask, chunk_size_outer_product)
+        z += self.outer_product_mean(m, msa_mask, chunk_size_outer_product)
 
         # Compute pairwise stack
         z = self.pairformer_layer(
-            z, token_mask, chunk_size_tri_attn, use_trifast=use_trifast
+            z, token_mask, chunk_size_transition_z, 
+            chunk_size_tri_attn, triangle_mult_gate_nchunks, use_trifast=use_trifast
         )
 
         return z, m

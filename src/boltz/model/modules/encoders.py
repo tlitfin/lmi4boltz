@@ -201,7 +201,8 @@ class SingleConditioning(Module):
         s = rearrange(fourier_to_single, "b d -> b 1 d") + s
 
         for transition in self.transitions:
-            s = transition(s) + s
+            #s = transition(s) + s
+            s += transition(s)
 
         return s, normed_fourier
 
@@ -250,12 +251,16 @@ class PairwiseConditioning(Module):
         self,
         z_trunk,
         token_rel_pos_feats,
+        chunk_size_transition_z=None
     ):
         z = torch.cat((z_trunk, token_rel_pos_feats), dim=-1)
+        del token_rel_pos_feats, z_trunk
+
         z = self.dim_pairwise_init_proj(z)
 
         for transition in self.transitions:
-            z = transition(z) + z
+            #z = transition(z) + z
+            z += transition(z, chunk_size_transition_z)
 
         return z
 

@@ -40,6 +40,7 @@ Figure 1 (A) Execution time required to predict the structure of an increasing n
 
    Run [boltz prediction](/docs/prediction.md) as usual with
    ```bash
+   export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
    boltz predict <INPUT_PATH> --use_msa_server
    ```
 

@@ -274,7 +274,7 @@ class VDWOverlapPotential(FlatBottomPotential, DistancePotential):
             const.vdw_radii, dtype=torch.float32, device=atom_chain_id.device
         )
         atom_vdw_radii = (
-            feats["ref_element"].float() @ vdw_radii.unsqueeze(-1)
+            feats["ref_element"].cuda().float() @ vdw_radii.unsqueeze(-1)
         ).squeeze(-1)[0]
 
         pair_index = torch.triu_indices(

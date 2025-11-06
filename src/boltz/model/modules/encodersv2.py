@@ -323,10 +323,10 @@ class AtomEncoder(Module):
             atom_feats = [
                 atom_ref_pos,
                 feats["ref_charge"].unsqueeze(-1),
-                feats["ref_element"],
+                feats["ref_element"].cuda(),
             ]
             if not self.use_no_atom_char:
-                atom_feats.append(feats["ref_atom_name_chars"].reshape(B, N, 4 * 64))
+                atom_feats.append(feats["ref_atom_name_chars"].reshape(B, N, 4 * 64).cuda())
             if self.use_atom_backbone_feat:
                 atom_feats.append(feats["atom_backbone_feat"])
             if self.use_residue_feats_atoms:

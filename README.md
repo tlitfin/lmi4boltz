@@ -37,12 +37,12 @@ Figure 1 (A) Execution time required to predict the structure of an increasing n
    ```
 
 3. **Run inference:**
-
    Run [boltz prediction](/docs/prediction.md) as usual with
    ```bash
-   export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
    boltz predict <INPUT_PATH> --use_msa_server
    ```
+> [!NOTE]
+> PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True is set internally by default unless manually specified. It can be disabled by running `export PYTORCH_CUDA_ALLOC_CONF=""`
 
 ## Options
 

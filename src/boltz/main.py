@@ -1446,8 +1446,9 @@ def predict(  # noqa: C901, PLR0915, PLR0912
             "chunk_size_transition_z": chunk_size_transition_z,
             "chunk_size_transition_msa": chunk_size_transition_msa,
             "chunk_size_outer_product": chunk_size_outer_product,
-            "triangle_mult_gate_nchunks": triangle_mult_gate_nchunks,
-            "chunk_size_tri_attn": chunk_size_tri_attn
+            "chunk_size_tri_attn": chunk_size_tri_attn,
+            "chunk_size_threshold": chunk_size_threshold,
+            "triangle_mult_gate_nchunks": triangle_mult_gate_nchunks
         }
 
         # Load affinity model

@@ -101,13 +101,13 @@ class AffinityModule(nn.Module):
             BM, N, _ = x_pred.shape
             B = BM // multiplicity
             mult = multiplicity
-        x_pred_repr = torch.bmm(token_to_rep_atom.float(), x_pred)
+        x_pred_repr = torch.bmm(token_to_rep_atom.cuda().float(), x_pred)
         d = torch.cdist(x_pred_repr, x_pred_repr)
 
         distogram = (d.unsqueeze(-1) > self.boundaries).sum(dim=-1).long()
         distogram = self.dist_bin_pairwise_embed(distogram)
 
-        z = z + self.pairwise_conditioner(z_trunk=z, token_rel_pos_feats=distogram)
+        z = z + self.pairwise_conditioner(z_trunk={"key": z}, token_rel_pos_feats={"key": distogram})
 
         pad_token_mask = feats["token_pad_mask"].repeat_interleave(multiplicity, 0)
         rec_mask = (feats["mol_type"] == 0).repeat_interleave(multiplicity, 0)

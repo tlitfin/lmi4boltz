@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Literal, Optional
 
 import click
+if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ:                                                                    
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import torch
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.strategies import DDPStrategy

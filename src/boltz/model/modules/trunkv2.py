@@ -743,12 +743,14 @@ class MSALayer(nn.Module):
         """
         # Communication to MSA stack
         msa_dropout = get_dropout_mask(self.msa_dropout, m, self.training)
-        m = m + msa_dropout * self.pair_weighted_averaging(
+        #m = m + msa_dropout * self.pair_weighted_averaging(
+        m = m + self.pair_weighted_averaging(
             m, z, token_mask, chunk_heads_pwa
         )
         m = m + self.msa_transition(m, chunk_size_transition_msa)
 
-        z = z + self.outer_product_mean(m, msa_mask, chunk_size_outer_product)
+        #z = z + self.outer_product_mean(m, msa_mask, chunk_size_outer_product)
+        z = (z + self.outer_product_mean(m, msa_mask, chunk_size_outer_product)).to(z.dtype)
 
         # Compute pairwise stack
         z = self.pairformer_layer(

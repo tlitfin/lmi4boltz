@@ -21,7 +21,7 @@ This allows for:
 
 ![LMI4Boltz plot](docs/lmi4boltz_plot.png)
 
-Figure 1 (A) Execution time required to predict the structure of an increasing number of ubiquitin subunits using each of the Boltz-2 implementations. (B) Maximum number of tokens able to be predicted before registering an out-of-memory error with 24GB VRAM. (C) Wall time required to predict the structure of 21 ubiquitin subunits (1596 tokens). (D) lddt of the PDB test set of LMI4boltz compared with the original Boltz-2 implementation.
+Figure 1 (A) Execution time required to predict the structure of an increasing number of ubiquitin subunits using each of the Boltz-2 implementations (inset: lDDT of the PDB test set for LMI4Boltz compared with the original Boltz-2 implementation). (B) Maximum number of tokens able to be predicted before registering an out-of-memory error with 24GB VRAM. (C) Wall time required to predict the structure of 21 ubiquitin subunits (1596 tokens).
 
 ## Quick Start
 

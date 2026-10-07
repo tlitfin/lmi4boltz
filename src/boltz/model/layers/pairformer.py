@@ -355,14 +355,14 @@ class PairformerNoSeqModule(nn.Module):
                     layer,
                     z,
                     pair_mask,
-                    chunk_size_tri_attn,
+                    chunk_size_tri_attn=chunk_size_tri_attn,
                     use_kernels=use_kernels,
                 )
             else:
                 z = layer(
                     z,
                     pair_mask,
-                    chunk_size_tri_attn,
+                    chunk_size_tri_attn=chunk_size_tri_attn,
                     use_kernels=use_kernels,
                 )
         return z
